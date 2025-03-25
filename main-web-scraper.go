@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -38,21 +39,51 @@ func scrape(url string) ([]Item, error) {
 }
 
 func main() {
-	url := flag.String("url", "https://news.ycombinator.com", "Page URL to scrape")
-	out := flag.String("out", "results.json", "Output file")
+
+	singleURL := flag.String("url", "https://news.ycombinator.com", "Single page URL to scrape")
+
+	urlsFlag := flag.String("urls", "", "Comma-separated list of URLs to scrape")
+
+	out := flag.String("out", "results.json", "Output JSON file")
 	flag.Parse()
 
-	items, err := scrape(*url)
-	if err != nil {
-		log.Fatal(err)
+	var urls []string
+	if *urlsFlag != "" {
+
+		urls = strings.Split(*urlsFlag, ",")
+	} else {
+
+		urls = []string{*singleURL}
 	}
 
-	data, err := json.MarshalIndent(items, "", "  ")
+	resultsChan := make(chan []Item)
+
+	for _, u := range urls {
+		go func(url string) {
+			items, err := scrape(url)
 	if err != nil {
-		log.Fatal(err)
+				log.Printf("Error scraping %s: %v\n", url, err)
+
+				resultsChan <- []Item{}
+				return
+			}
+			resultsChan <- items
+		}(u)
+	}
+
+	var allItems []Item
+	for i := 0; i < len(urls); i++ {
+		part := <-resultsChan
+		allItems = append(allItems, part...)
+	}
+
+	data, err := json.MarshalIndent(allItems, "", "  ")
+	if err != nil {
+		log.Fatalf("JSON marshal failed: %v", err)
 	}
 	if err := os.WriteFile(*out, data, 0644); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Write file failed: %v", err)
 	}
-	fmt.Printf("Saved %d items to %s\n", len(items), *out)
+
+	fmt.Printf("Scraped %d items from %d URL(s). Saved to %s\n", len(allItems), len(urls), *out)
 }

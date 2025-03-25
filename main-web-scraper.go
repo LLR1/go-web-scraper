@@ -61,7 +61,7 @@ func main() {
 	for _, u := range urls {
 		go func(url string) {
 			items, err := scrape(url)
-	if err != nil {
+			if err != nil {
 				log.Printf("Error scraping %s: %v\n", url, err)
 
 				resultsChan <- []Item{}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -39,31 +40,29 @@ func scrape(url string) ([]Item, error) {
 }
 
 func main() {
-
 	singleURL := flag.String("url", "https://news.ycombinator.com", "Single page URL to scrape")
-
 	urlsFlag := flag.String("urls", "", "Comma-separated list of URLs to scrape")
-
 	out := flag.String("out", "results.json", "Output JSON file")
 	flag.Parse()
 
 	var urls []string
 	if *urlsFlag != "" {
-
 		urls = strings.Split(*urlsFlag, ",")
 	} else {
-
 		urls = []string{*singleURL}
 	}
 
-	resultsChan := make(chan []Item)
+	resultsChan := make(chan []Item, len(urls))
+	var wg sync.WaitGroup
 
+	// For each URL, start a goroutine and add the task to the WaitGroup.
 	for _, u := range urls {
+		wg.Add(1)
 		go func(url string) {
+			defer wg.Done()
 			items, err := scrape(url)
 			if err != nil {
 				log.Printf("Error scraping %s: %v\n", url, err)
-
 				resultsChan <- []Item{}
 				return
 			}
@@ -71,9 +70,11 @@ func main() {
 		}(u)
 	}
 
+	wg.Wait()
+	close(resultsChan)
+
 	var allItems []Item
-	for i := 0; i < len(urls); i++ {
-		part := <-resultsChan
+	for part := range resultsChan {
 		allItems = append(allItems, part...)
 	}
 
